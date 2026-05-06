@@ -73,6 +73,53 @@ def defaults():
     }
 
 
+def _xml_search_roots() -> list[Path]:
+    """Where to look for MuJoCo XMLs offered to the user as presets.
+
+    Order: STAC_KEYPOINTS_MODELS_DIRS env var (colon-separated), then the
+    repo's bundled data/ dir, then ../stac-mjx/models/ relative to the
+    repo (the typical layout for talmolab contributors). Missing dirs are
+    silently skipped.
+    """
+    roots: list[Path] = []
+    env = os.environ.get("STAC_KEYPOINTS_MODELS_DIRS", "")
+    for raw in env.split(":") if env else []:
+        if raw:
+            roots.append(Path(raw).expanduser().resolve())
+    roots.append(_BUNDLED_DATA)
+    sibling = (_REPO_ROOT.parent / "stac-mjx" / "models").resolve()
+    roots.append(sibling)
+    return [r for r in roots if r.exists() and r.is_dir()]
+
+
+@app.get("/api/list-xmls")
+def list_xmls():
+    """Discover MuJoCo XMLs in the configured search roots.
+
+    Returns one entry per .xml file with a short label suitable for a
+    dropdown. Useful for switching models mid-session without typing
+    absolute paths.
+    """
+    presets: list[dict] = []
+    seen: set[str] = set()
+    for root in _xml_search_roots():
+        for xml in sorted(root.rglob("*.xml")):
+            resolved = str(xml.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            try:
+                rel = xml.relative_to(root)
+            except ValueError:
+                rel = xml.name
+            presets.append({
+                "name": str(rel),
+                "path": resolved,
+                "root": str(root),
+            })
+    return {"presets": presets}
+
+
 @app.post("/api/load-xml")
 async def load_xml(file: UploadFile = File(None), path: str = Query(None)):
     """Load MuJoCo XML either by file upload or local path."""

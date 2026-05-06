@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useStore } from "../store";
 import * as api from "../api";
 import { runIk } from "../ikRunner";
@@ -67,15 +67,33 @@ export default function Toolbar() {
   // Path-based load. Needed for models whose XML references external assets
   // by relative path (most non-rat models pull in mesh OBJs from `assets/`),
   // since file uploads land in /tmp where those relative paths don't resolve.
-  const handleLoadXmlPath = useCallback(async () => {
-    const last = localStorage.getItem("stac.lastXmlPath") || "";
-    const path = prompt("Absolute server-side path to MuJoCo XML:", last);
+  const loadByPath = useCallback(async (path: string) => {
     if (!path) return;
     const data = await api.loadXml(path);
     if (!data.error) localStorage.setItem("stac.lastXmlPath", path);
     const basename = path.split("/").pop() || path;
     await finishXmlLoad(data, path, basename);
   }, [finishXmlLoad]);
+
+  // Discovered XMLs from the backend's configured search roots — populates
+  // the "Load preset" dropdown so users don't have to type absolute paths.
+  const [xmlPresets, setXmlPresets] = useState<api.XmlPreset[]>([]);
+  useEffect(() => {
+    api.listXmls().then(setXmlPresets).catch(() => setXmlPresets([]));
+  }, []);
+
+  const handlePresetChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    e.target.value = "";  // reset so re-selecting the same item still fires
+    if (!value) return;
+    if (value === "__custom__") {
+      const last = localStorage.getItem("stac.lastXmlPath") || "";
+      const path = prompt("Absolute server-side path to MuJoCo XML:", last);
+      if (path) await loadByPath(path);
+      return;
+    }
+    await loadByPath(value);
+  }, [loadByPath]);
 
   const handleLoadMat = useCallback(async () => {
     const file = await pickFile(".mat");
@@ -276,7 +294,18 @@ export default function Toolbar() {
   return (
     <>
       <button style={btnStyle} onClick={handleLoadXml}>Load XML</button>
-      <button style={btnStyle} onClick={handleLoadXmlPath} title="Load XML by absolute server-side path (needed for models with external mesh assets)">XML by path</button>
+      <select
+        onChange={handlePresetChange}
+        defaultValue=""
+        title="Load a discovered XML by path (needed for models with external mesh assets)"
+        style={{ ...btnStyle, padding: "4px 6px" }}
+      >
+        <option value="" disabled>Load preset…</option>
+        {xmlPresets.map((p) => (
+          <option key={p.path} value={p.path}>{p.name}</option>
+        ))}
+        <option value="__custom__">Custom path…</option>
+      </select>
       <button style={btnStyle} onClick={handleLoadKeypoints}>Load KP</button>
       <button style={btnStyle} onClick={handleLoadMat}>Load .mat</button>
       <button style={btnStyle} onClick={handleLoadAcm}>Load ACM</button>
