@@ -10,6 +10,21 @@ export function useKeyboardShortcuts() {
 
       const state = useStore.getState();
       const shift = e.shiftKey;
+      const cmd = e.metaKey || e.ctrlKey;
+
+      // Undo / redo for mapping work. Cmd-Z / Ctrl-Z = undo;
+      // Cmd-Shift-Z or Cmd-Y = redo. Caught here (not in the switch
+      // below) because it's a chord, not a single key.
+      if (cmd && e.code === "KeyZ") {
+        e.preventDefault();
+        if (shift) state.redo(); else state.undo();
+        return;
+      }
+      if (cmd && e.code === "KeyY") {
+        e.preventDefault();
+        state.redo();
+        return;
+      }
 
       switch (e.code) {
         case "Space":

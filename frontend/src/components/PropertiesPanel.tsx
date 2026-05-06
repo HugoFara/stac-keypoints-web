@@ -10,6 +10,7 @@ export default function PropertiesPanel() {
   const offsets = useStore((s) => s.offsets);
   const mappings = useStore((s) => s.mappings);
   const updateOffset = useStore((s) => s.updateOffset);
+  const pushHistory = useStore((s) => s.pushHistory);
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
   const modelRotationY = useStore((s) => s.modelRotationY);
@@ -218,6 +219,7 @@ export default function PropertiesPanel() {
                   <input
                     type="number" step={0.001}
                     value={currentOffset?.[axis] ?? 0}
+                    onFocus={pushHistory}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value) || 0;
                       const o = currentOffset || { x: 0, y: 0, z: 0 };
@@ -275,7 +277,9 @@ QE        Orbit camera
 RF        Camera up/down
 1/2       Mapping/Offset mode
 L         Label frame
-Esc       Deselect`}
+Esc       Deselect
+\u2318/Ctrl-Z   Undo mapping/offset
+\u2318/Ctrl-\u21e7Z  Redo`}
         </pre>
       </details>
 

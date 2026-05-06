@@ -13,6 +13,7 @@ export default function OffsetGizmo() {
   const bodyNames = useStore((s) => s.bodyNames);
   const mode = useStore((s) => s.mode);
   const updateOffset = useStore((s) => s.updateOffset);
+  const pushHistory = useStore((s) => s.pushHistory);
   const meshRef = useRef<THREE.Mesh>(null!);
   const controlsRef = useRef<any>(null);
   const { controls } = useThree();
@@ -23,10 +24,13 @@ export default function OffsetGizmo() {
     if (!ctrl) return;
     const onDragChanged = (event: any) => {
       if (controls) (controls as any).enabled = !event.value;
+      // Snapshot once at drag start so the whole drag is one undo step,
+      // not one per pointermove tick.
+      if (event.value) pushHistory();
     };
     ctrl.addEventListener("dragging-changed", onDragChanged);
     return () => ctrl.removeEventListener("dragging-changed", onDragChanged);
-  }, [controls]);
+  }, [controls, pushHistory]);
 
   if (mode !== "offset" || !selectedKp) return null;
 

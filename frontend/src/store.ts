@@ -122,6 +122,14 @@ interface AppState {
   perKeypointErrors: { keypointName: string; errorMm: number }[];
   setPerKeypointErrors: (errors: { keypointName: string; errorMm: number }[]) => void;
 
+  // Undo/redo for mapping work (mappings + offsets). Capped at 50 entries
+  // each. Session-only — not partialized into localStorage.
+  _undoStack: { mappings: KPMapping[]; offsets: KPOffset[] }[];
+  _redoStack: { mappings: KPMapping[]; offsets: KPOffset[] }[];
+  pushHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+
   // Follow camera
   followCamera: boolean;
   setFollowCamera: (follow: boolean) => void;
@@ -214,6 +222,33 @@ export const useStore = create<AppState>()(persist((set) => ({
   hoveredPosition: null,
   perKeypointErrors: [],
   setPerKeypointErrors: (errors) => set({ perKeypointErrors: errors }),
+
+  _undoStack: [],
+  _redoStack: [],
+  pushHistory: () => set((state) => ({
+    _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    _redoStack: [],
+  })),
+  undo: () => set((state) => {
+    if (state._undoStack.length === 0) return {};
+    const snap = state._undoStack[state._undoStack.length - 1];
+    return {
+      mappings: snap.mappings,
+      offsets: snap.offsets,
+      _undoStack: state._undoStack.slice(0, -1),
+      _redoStack: [...state._redoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    };
+  }),
+  redo: () => set((state) => {
+    if (state._redoStack.length === 0) return {};
+    const snap = state._redoStack[state._redoStack.length - 1];
+    return {
+      mappings: snap.mappings,
+      offsets: snap.offsets,
+      _redoStack: state._redoStack.slice(0, -1),
+      _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    };
+  }),
   followCamera: true,
   setFollowCamera: (follow) => set({ followCamera: follow }),
 
@@ -244,10 +279,16 @@ export const useStore = create<AppState>()(persist((set) => ({
   setSelectedBody: (name) => set({ selectedBody: name }),
   addMapping: (kp, body) => set((state) => {
     const filtered = state.mappings.filter((m) => m.keypointName !== kp);
-    return { mappings: [...filtered, { keypointName: kp, bodyName: body }] };
+    return {
+      mappings: [...filtered, { keypointName: kp, bodyName: body }],
+      _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+      _redoStack: [],
+    };
   }),
   removeMapping: (kp) => set((state) => ({
     mappings: state.mappings.filter((m) => m.keypointName !== kp),
+    _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    _redoStack: [],
   })),
   updateOffset: (kp, x, y, z) => set((state) => {
     const filtered = state.offsets.filter((o) => o.keypointName !== kp);
