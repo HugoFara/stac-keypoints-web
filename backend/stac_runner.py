@@ -12,8 +12,12 @@ from scipy.spatial.transform import Rotation
 from backend.alignment import procrustes_align
 
 
-# Trunk keypoints used for root IK (Procrustes on these to get root position + quat)
-_TRUNK_KEYPOINTS = ["SpineL", "SpineM", "SpineF", "Snout"]
+# Preferred trunk keypoints for root Procrustes (rat conventions). These are
+# central, low-variance markers that give a stable estimate of root pose. If
+# fewer than 3 of these exist in the loaded keypoint set — e.g., on a
+# non-rat species — we fall back to "any mapped keypoint" below, which still
+# produces a reasonable root fit when no anatomical preference is available.
+_PREFERRED_TRUNK_KEYPOINTS = ["SpineL", "SpineM", "SpineF", "Snout"]
 
 
 def _rotation_matrix_to_quat(R: np.ndarray) -> np.ndarray:
@@ -177,7 +181,7 @@ def run_quick_stac(
     # Determine which trunk keypoints we can use (need both kp_name in kp_names and body in mappings)
     trunk_kps_available = []
     if mappings:
-        for tkp in _TRUNK_KEYPOINTS:
+        for tkp in _PREFERRED_TRUNK_KEYPOINTS:
             if tkp in kp_names and tkp in mappings:
                 body_name = mappings[tkp]
                 body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)

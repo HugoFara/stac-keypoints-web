@@ -6,6 +6,9 @@ import { mjToThree } from "../mujocoLoader";
 import { segmentKey } from "../skeletonEditor";
 import { errorToColor } from "../errorColor";
 
+// Canonical hues for the rat keypoint set. Anything not listed here falls
+// back to a hash-derived hue (see colorForKp), so other species still get
+// stable per-keypoint colors without us having to enumerate them.
 const KP_COLORS: Record<string, string> = {
   Snout: "#ffcc00", SpineF: "#ffaa00", SpineM: "#ff8800", SpineL: "#ff6600", TailBase: "#ee5500",
   ShoulderL: "#4488ff", ElbowL: "#3399ff", WristL: "#22aaff", HandL: "#11bbff",
@@ -13,6 +16,21 @@ const KP_COLORS: Record<string, string> = {
   ShoulderR: "#ff4466", ElbowR: "#ff3377", WristR: "#ff2288", HandR: "#ff1199",
   HipR: "#ff6644", KneeR: "#ff5533", AnkleR: "#ff4422", FootR: "#ff3311",
 };
+
+function colorForKp(name: string): string {
+  const explicit = KP_COLORS[name];
+  if (explicit) return explicit;
+  // FNV-1a-ish 32-bit hash → hue in [0, 360). Saturation and lightness
+  // fixed so the unknown-name colors sit in the same brightness band as
+  // the rat palette above.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  const hue = ((h >>> 0) % 360);
+  return `hsl(${hue}, 75%, 60%)`;
+}
 
 // Shared geometries — created once, reused across renders
 const _smallSphere = new THREE.SphereGeometry(0.003, 12, 8);
@@ -132,7 +150,7 @@ export default function ACMSkeleton() {
           ? "#ffff00"
           : isHighlighted
           ? "#ffffff"
-          : errorColor ?? KP_COLORS[name] ?? "#888888";
+          : errorColor ?? colorForKp(name);
         // Confidence tint applies only to the base color, not to selection /
         // highlight / error overlays (which carry their own meaning).
         if (!isSelected && !isHighlighted && !errorColor && confidences) {

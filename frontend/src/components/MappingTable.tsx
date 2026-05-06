@@ -204,7 +204,7 @@ export default function MappingTable() {
           })
         )}
       </div>
-      <div style={{ marginTop: 8, fontSize: 11, color: "#555" }}>{mappings.length} / {acmKeypointNames.length || 21} mapped</div>
+      <div style={{ marginTop: 8, fontSize: 11, color: "#555" }}>{mappings.length}{acmKeypointNames.length ? ` / ${acmKeypointNames.length}` : ""} mapped</div>
     </div>
   );
 }
