@@ -60,15 +60,15 @@ def test_mesh_geom_renders_as_aabb_box():
     geoms = [g for g in result["geoms"] if g["bodyName"] == "b1"]
     assert len(geoms) == 1
     g = geoms[0]
-    assert g["type"] == "box"
-    # Verts span x:[0,1], y:[0,2], z:[0,3]. MuJoCo's compiler recenters the
-    # mesh on its inertial frame, so the box's exact pose moves; what we
-    # verify is that each half-extent ends up in the right ballpark for the
-    # corresponding axis (the ordering of axes survives recentering).
-    sx, sy, sz = g["size"]
-    assert 0.3 < sx < 0.7  # ≈ 0.5
-    assert 0.7 < sy < 1.3  # ≈ 1.0
-    assert 1.3 < sz < 1.9  # ≈ 1.5
+    assert g["type"] == "capsule"
+    # Verts span x:[0,1], y:[0,2], z:[0,3] → AABB half-extents ≈ (0.5, 1.0, 1.5).
+    # Capsule fit picks the longest axis (z, ≈1.5) as the main axis. Radius
+    # comes from the longer of the two short extents (≈1.0). MuJoCo recenters
+    # the mesh on its inertial frame, so we check shape rather than exact
+    # numbers: radius is in the right ballpark and half-cylinder is non-negative.
+    radius, half_cyl, _ = g["size"]
+    assert 0.7 < radius < 1.3
+    assert half_cyl >= 0
     # Position should be finite, not NaN/inf.
     for c in g["position"]:
         assert c == c and abs(c) < 100  # finite
