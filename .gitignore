@@ -14,3 +14,7 @@ venv/
 # kept via explicit exceptions below.
 data/*.h5
 !data/demo_with_nan.h5
+
+# Per-machine symlinks pointing at species handoff packages outside the
+# repo (e.g. data/stick → ~/stick_handoff/data).
+data/stick

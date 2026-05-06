@@ -103,7 +103,14 @@ def list_xmls():
     presets: list[dict] = []
     seen: set[str] = set()
     for root in _xml_search_roots():
-        for xml in sorted(root.rglob("*.xml")):
+        # followlinks=True so a symlink like data/stick → ~/stick_handoff/data
+        # surfaces its XMLs without copying them into the project tree.
+        xml_paths: list[Path] = []
+        for dirpath, _, filenames in os.walk(root, followlinks=True):
+            for name in filenames:
+                if name.endswith(".xml"):
+                    xml_paths.append(Path(dirpath) / name)
+        for xml in sorted(xml_paths):
             resolved = str(xml.resolve())
             if resolved in seen:
                 continue
