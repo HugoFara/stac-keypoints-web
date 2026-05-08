@@ -34,15 +34,64 @@ def extract_model_geometry(xml_path: str) -> dict:
         geom_type = int(model.geom_type[g])
         if geom_type == mujoco.mjtGeom.mjGEOM_PLANE:
             continue
-        if int(model.geom_group[g]) >= 3:
-            continue
-        type_name = _GEOM_TYPE_NAMES.get(geom_type, "unknown")
         body_id = int(model.geom_bodyid[g])
         body_name = body_names_list[body_id] if body_id < len(body_names_list) else ""
-        size = [float(model.geom_size[g, i]) for i in range(3)]
-        pos = [float(model.geom_pos[g, i]) for i in range(3)]
-        quat = [float(model.geom_quat[g, i]) for i in range(4)]
         rgba = [float(model.geom_rgba[g, i]) for i in range(4)]
+        quat = [float(model.geom_quat[g, i]) for i in range(4)]
+        pos = [float(model.geom_pos[g, i]) for i in range(3)]
+
+        if geom_type == mujoco.mjtGeom.mjGEOM_MESH:
+            # The frontend has no triangle-mesh path (deferred to the WASM SPA
+            # migration in M6). Fall back to a capsule fit along the mesh's
+            # longest AABB axis — body parts are usually elongated, so a
+            # capsule reads better than a box of the same extent.
+            #
+            # geom_aabb is [cx, cy, cz, hx, hy, hz] in geom-local frame.
+            # MuJoCo capsules default along their local Z axis, so we rotate
+            # the geom's quat by an axis-alignment quat that maps Z onto the
+            # AABB's longest axis.
+            aabb = model.geom_aabb[g]
+            center_local = np.array([aabb[0], aabb[1], aabb[2]], dtype=np.float64)
+            half_x, half_y, half_z = float(aabb[3]), float(aabb[4]), float(aabb[5])
+            extents = [half_x, half_y, half_z]
+            longest = int(np.argmax(extents))
+            half_long = extents[longest]
+            half_short = max(extents[i] for i in range(3) if i != longest)
+            radius = half_short
+            half_cyl = max(0.0, half_long - half_short)
+
+            # Quat (w,x,y,z) that rotates capsule's local Z onto the longest
+            # AABB axis. mujoco.mju_axisAngle2Quat would also work; the
+            # closed forms below are clearer.
+            sqrt_half = float(np.sqrt(0.5))
+            if longest == 0:    # Z → X via +90° around Y
+                align = np.array([sqrt_half, 0.0, sqrt_half, 0.0])
+            elif longest == 1:  # Z → Y via -90° around X
+                align = np.array([sqrt_half, -sqrt_half, 0.0, 0.0])
+            else:               # Z → Z, identity
+                align = np.array([1.0, 0.0, 0.0, 0.0])
+
+            quat_arr = np.array(quat, dtype=np.float64)
+            combined = np.empty(4, dtype=np.float64)
+            mujoco.mju_mulQuat(combined, quat_arr, align)
+
+            rotated = np.empty(3, dtype=np.float64)
+            mujoco.mju_rotVecQuat(rotated, center_local, quat_arr)
+            cap_pos = [float(pos[0] + rotated[0]),
+                       float(pos[1] + rotated[1]),
+                       float(pos[2] + rotated[2])]
+            geoms.append({
+                "type": "capsule", "bodyId": body_id, "bodyName": body_name,
+                "size": [float(radius), float(half_cyl), 0.0],
+                "position": cap_pos,
+                "quaternion": [float(combined[0]), float(combined[1]),
+                               float(combined[2]), float(combined[3])],
+                "color": rgba,
+            })
+            continue
+
+        type_name = _GEOM_TYPE_NAMES.get(geom_type, "unknown")
+        size = [float(model.geom_size[g, i]) for i in range(3)]
         geoms.append({
             "type": type_name, "bodyId": body_id, "bodyName": body_name,
             "size": size, "position": pos, "quaternion": quat, "color": rgba,

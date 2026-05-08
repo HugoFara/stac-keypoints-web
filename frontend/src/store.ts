@@ -63,6 +63,7 @@ interface AppState {
   mode: InteractionMode;
   selectedKeypoint: string | null;
   selectedBody: string | null;
+  helpOpen: boolean;
 
   // Timeline
   currentFrame: number;
@@ -122,6 +123,14 @@ interface AppState {
   perKeypointErrors: { keypointName: string; errorMm: number }[];
   setPerKeypointErrors: (errors: { keypointName: string; errorMm: number }[]) => void;
 
+  // Undo/redo for mapping work (mappings + offsets). Capped at 50 entries
+  // each. Session-only — not partialized into localStorage.
+  _undoStack: { mappings: KPMapping[]; offsets: KPOffset[] }[];
+  _redoStack: { mappings: KPMapping[]; offsets: KPOffset[] }[];
+  pushHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+
   // Follow camera
   followCamera: boolean;
   setFollowCamera: (follow: boolean) => void;
@@ -134,6 +143,8 @@ interface AppState {
   setMode: (mode: InteractionMode) => void;
   setSelectedKeypoint: (name: string | null) => void;
   setSelectedBody: (name: string | null) => void;
+  setHelpOpen: (open: boolean) => void;
+  toggleHelp: () => void;
   addMapping: (kp: string, body: string) => void;
   removeMapping: (kp: string) => void;
   updateOffset: (kp: string, x: number, y: number, z: number) => void;
@@ -187,6 +198,7 @@ export const useStore = create<AppState>()(persist((set) => ({
   mode: "mapping",
   selectedKeypoint: null,
   selectedBody: null,
+  helpOpen: false,
   currentFrame: 0,
   isPlaying: false,
   frameStatuses: [],
@@ -214,6 +226,33 @@ export const useStore = create<AppState>()(persist((set) => ({
   hoveredPosition: null,
   perKeypointErrors: [],
   setPerKeypointErrors: (errors) => set({ perKeypointErrors: errors }),
+
+  _undoStack: [],
+  _redoStack: [],
+  pushHistory: () => set((state) => ({
+    _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    _redoStack: [],
+  })),
+  undo: () => set((state) => {
+    if (state._undoStack.length === 0) return {};
+    const snap = state._undoStack[state._undoStack.length - 1];
+    return {
+      mappings: snap.mappings,
+      offsets: snap.offsets,
+      _undoStack: state._undoStack.slice(0, -1),
+      _redoStack: [...state._redoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    };
+  }),
+  redo: () => set((state) => {
+    if (state._redoStack.length === 0) return {};
+    const snap = state._redoStack[state._redoStack.length - 1];
+    return {
+      mappings: snap.mappings,
+      offsets: snap.offsets,
+      _redoStack: state._redoStack.slice(0, -1),
+      _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    };
+  }),
   followCamera: true,
   setFollowCamera: (follow) => set({ followCamera: follow }),
 
@@ -242,12 +281,20 @@ export const useStore = create<AppState>()(persist((set) => ({
   setMode: (mode) => set({ mode }),
   setSelectedKeypoint: (name) => set({ selectedKeypoint: name }),
   setSelectedBody: (name) => set({ selectedBody: name }),
+  setHelpOpen: (open) => set({ helpOpen: open }),
+  toggleHelp: () => set((s) => ({ helpOpen: !s.helpOpen })),
   addMapping: (kp, body) => set((state) => {
     const filtered = state.mappings.filter((m) => m.keypointName !== kp);
-    return { mappings: [...filtered, { keypointName: kp, bodyName: body }] };
+    return {
+      mappings: [...filtered, { keypointName: kp, bodyName: body }],
+      _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+      _redoStack: [],
+    };
   }),
   removeMapping: (kp) => set((state) => ({
     mappings: state.mappings.filter((m) => m.keypointName !== kp),
+    _undoStack: [...state._undoStack, { mappings: state.mappings, offsets: state.offsets }].slice(-50),
+    _redoStack: [],
   })),
   updateOffset: (kp, x, y, z) => set((state) => {
     const filtered = state.offsets.filter((o) => o.keypointName !== kp);
@@ -320,6 +367,7 @@ export const useStore = create<AppState>()(persist((set) => ({
     showGlobalControls: state.showGlobalControls,
     showErrorLines: state.showErrorLines,
     showOffsetMarkers: state.showOffsetMarkers,
+    colorByError: state.colorByError,
     autoIk: state.autoIk,
     followCamera: state.followCamera,
     mode: state.mode,

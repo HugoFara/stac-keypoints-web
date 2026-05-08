@@ -11,6 +11,10 @@ export default function MappingTable() {
   const hoveredSegment = useStore((s) => s.hoveredSegment);
   const acmKeypointNames = useStore((s) => s.acmKeypointNames);
   const mode = useStore((s) => s.mode);
+  const undo = useStore((s) => s.undo);
+  const redo = useStore((s) => s.redo);
+  const canUndo = useStore((s) => s._undoStack.length > 0);
+  const canRedo = useStore((s) => s._redoStack.length > 0);
 
   const [bodySearchText, setBodySearchText] = useState("");
   const [kpSearchText, setKpSearchText] = useState("");
@@ -49,7 +53,33 @@ export default function MappingTable() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <h3 style={{ margin: "0 0 8px", fontSize: 14, color: "#aaa" }}>{"Keypoint \u2192 Body"}</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 8px" }}>
+        <h3 style={{ margin: 0, fontSize: 14, color: "#aaa" }}>{"Keypoint \u2192 Body"}</h3>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (Cmd/Ctrl-Z)"
+            style={{
+              background: "#2a2a4a", border: "1px solid #444",
+              color: canUndo ? "#ccc" : "#555",
+              padding: "2px 8px", borderRadius: 3, fontSize: 11,
+              cursor: canUndo ? "pointer" : "default",
+            }}
+          >{"\u21b6"}</button>
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (Cmd/Ctrl-Shift-Z)"
+            style={{
+              background: "#2a2a4a", border: "1px solid #444",
+              color: canRedo ? "#ccc" : "#555",
+              padding: "2px 8px", borderRadius: 3, fontSize: 11,
+              cursor: canRedo ? "pointer" : "default",
+            }}
+          >{"\u21b7"}</button>
+        </div>
+      </div>
       {mode === "mapping" && (
         <div style={{ marginBottom: 8, fontSize: 12, color: "#888" }}>
           {selectedKp ? (
@@ -204,7 +234,7 @@ export default function MappingTable() {
           })
         )}
       </div>
-      <div style={{ marginTop: 8, fontSize: 11, color: "#555" }}>{mappings.length} / {acmKeypointNames.length || 21} mapped</div>
+      <div style={{ marginTop: 8, fontSize: 11, color: "#555" }}>{mappings.length}{acmKeypointNames.length ? ` / ${acmKeypointNames.length}` : ""} mapped</div>
     </div>
   );
 }

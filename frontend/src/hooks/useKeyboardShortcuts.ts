@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "../store";
+import { runExport } from "../exportConfig";
 
 export function useKeyboardShortcuts() {
   useEffect(() => {
@@ -10,6 +11,42 @@ export function useKeyboardShortcuts() {
 
       const state = useStore.getState();
       const shift = e.shiftKey;
+      const cmd = e.metaKey || e.ctrlKey;
+
+      // Chord shortcuts handled before the single-key switch.
+      if (cmd && e.code === "KeyZ") {
+        e.preventDefault();
+        if (shift) state.redo(); else state.undo();
+        return;
+      }
+      if (cmd && e.code === "KeyY") {
+        e.preventDefault();
+        state.redo();
+        return;
+      }
+      // Cmd/Ctrl-S → Export. Override the browser's save-page default.
+      if (cmd && e.code === "KeyS") {
+        e.preventDefault();
+        runExport();
+        return;
+      }
+      // `?` (Shift+/) toggles the help overlay; bare `/` opens it for
+      // layouts where Shift+/ produces a different code.
+      if (e.code === "Slash") {
+        e.preventDefault();
+        state.toggleHelp();
+        return;
+      }
+
+      // Help overlay swallows the rest — only Esc / H close it, and the
+      // chord-shortcuts above still apply.
+      if (state.helpOpen) {
+        if (e.code === "Escape" || e.code === "KeyH") {
+          e.preventDefault();
+          state.setHelpOpen(false);
+        }
+        return;
+      }
 
       switch (e.code) {
         case "Space":
@@ -39,7 +76,11 @@ export function useKeyboardShortcuts() {
           state.setMode("offset");
           break;
         case "Escape":
-          state.setSelectedKeypoint(null);
+          if (state.helpOpen) state.setHelpOpen(false);
+          else state.setSelectedKeypoint(null);
+          break;
+        case "KeyH":
+          state.toggleHelp();
           break;
         case "KeyL":
           state.labelCurrentFrame();

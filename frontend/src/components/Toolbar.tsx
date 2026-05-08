@@ -1,9 +1,9 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useStore } from "../store";
 import * as api from "../api";
 import { runIk } from "../ikRunner";
 import { runAlignment, formatAlignStatus } from "../alignment";
-import { validateMappings } from "../validation";
+import { runExport } from "../exportConfig";
 
 /** Open a transient native file picker and resolve with the chosen File. */
 function pickFile(accept: string): Promise<File | null> {
@@ -17,19 +17,6 @@ function pickFile(accept: string): Promise<File | null> {
   });
 }
 
-/** Trigger a browser download for a YAML document. */
-function downloadYaml(body: string, filename: string) {
-  const blob = new Blob([body], { type: "application/x-yaml" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
 export default function Toolbar() {
   const setXmlData = useStore((s) => s.setXmlData);
   const setAcmData = useStore((s) => s.setAcmData);
@@ -38,25 +25,62 @@ export default function Toolbar() {
   const ikStatus = useStore((s) => s.ikStatus);
   const setIkStatus = useStore((s) => s.setIkStatus);
 
-  const handleLoadXml = useCallback(async () => {
-    const file = await pickFile(".xml");
-    if (!file) return;
-    const data = await api.uploadXml(file);
+  const finishXmlLoad = useCallback(async (
+    data: any, fallbackPath: string, fallbackBasename: string,
+  ) => {
     if (data.error) { alert(data.error); return; }
-    // Backend stored the upload in a temp file; track that path so subsequent
-    // body-transform / align calls reuse the same model.
     setXmlData({
       geoms: data.geoms,
       bodyNames: data.bodyNames,
       nq: data.nq,
-      xmlPath: data.xmlPath ?? file.name,
-      xmlBasename: file.name,
+      xmlPath: data.xmlPath ?? fallbackPath,
+      xmlBasename: fallbackBasename,
     });
     const defaultQpos = new Array(data.nq).fill(0);
     defaultQpos[3] = 1.0;
     const transforms = await api.bodyTransforms(defaultQpos);
     setBodyTransforms(transforms);
   }, [setXmlData, setBodyTransforms]);
+
+  const handleLoadXml = useCallback(async () => {
+    const file = await pickFile(".xml");
+    if (!file) return;
+    // Backend stored the upload in a temp file; track that path so subsequent
+    // body-transform / align calls reuse the same model.
+    const data = await api.uploadXml(file);
+    await finishXmlLoad(data, file.name, file.name);
+  }, [finishXmlLoad]);
+
+  // Path-based load. Needed for models whose XML references external assets
+  // by relative path (most non-rat models pull in mesh OBJs from `assets/`),
+  // since file uploads land in /tmp where those relative paths don't resolve.
+  const loadByPath = useCallback(async (path: string) => {
+    if (!path) return;
+    const data = await api.loadXml(path);
+    if (!data.error) localStorage.setItem("stac.lastXmlPath", path);
+    const basename = path.split("/").pop() || path;
+    await finishXmlLoad(data, path, basename);
+  }, [finishXmlLoad]);
+
+  // Discovered XMLs from the backend's configured search roots — populates
+  // the "Load preset" dropdown so users don't have to type absolute paths.
+  const [xmlPresets, setXmlPresets] = useState<api.XmlPreset[]>([]);
+  useEffect(() => {
+    api.listXmls().then(setXmlPresets).catch(() => setXmlPresets([]));
+  }, []);
+
+  const handlePresetChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    e.target.value = "";  // reset so re-selecting the same item still fires
+    if (!value) return;
+    if (value === "__custom__") {
+      const last = localStorage.getItem("stac.lastXmlPath") || "";
+      const path = prompt("Absolute server-side path to MuJoCo XML:", last);
+      if (path) await loadByPath(path);
+      return;
+    }
+    await loadByPath(value);
+  }, [loadByPath]);
 
   const handleLoadMat = useCallback(async () => {
     const file = await pickFile(".mat");
@@ -98,61 +122,7 @@ export default function Toolbar() {
     setIkStatus(formatAlignStatus(outcome));
   }, [setIkStatus]);
 
-  const handleExport = useCallback(async () => {
-    const state = useStore.getState();
-
-    const { errors, warnings } = validateMappings({
-      mappings: state.mappings,
-      bodyNames: state.bodyNames,
-      acmKeypointNames: state.acmKeypointNames,
-    });
-    if (errors.length > 0) {
-      setIkStatus(
-        `Export blocked: ${errors.length} error(s). First: ${errors[0]}`,
-      );
-      return;
-    }
-
-    const pairs: Record<string, string> = {};
-    for (const m of state.mappings) pairs[m.keypointName] = m.bodyName;
-    const offsetMap: Record<string, [number, number, number]> = {};
-    for (const o of state.offsets) offsetMap[o.keypointName] = [o.x, o.y, o.z];
-    const config: Record<string, unknown> = {
-      keypointModelPairs: pairs,
-      keypointInitialOffsets: offsetMap,
-      scaleFactor: state.scaleFactor,
-      mocapScaleFactor: state.mocapScaleFactor,
-      xmlPath: state.xmlPath || "",
-      xmlBasename: state.xmlBasename,
-      kpNames: state.acmKeypointNames,
-      segmentScales: state.segmentScales,
-    };
-    if (state.rawTemplate) config._rawTemplate = state.rawTemplate;
-
-    let mainBody: string;
-    let sidecarBody: string | null;
-    try {
-      [mainBody, sidecarBody] = await Promise.all([
-        api.exportConfig(config),
-        api.exportUiSidecar(config),
-      ]);
-    } catch (e) {
-      setIkStatus("Export error: " + (e as Error).message);
-      return;
-    }
-    downloadYaml(mainBody, "stac_retarget_config.yaml");
-    if (sidecarBody) {
-      downloadYaml(sidecarBody, "stac_retarget_config.ui.yaml");
-    }
-    const base = sidecarBody
-      ? "Config + UI sidecar downloaded."
-      : "Config downloaded.";
-    setIkStatus(
-      warnings.length > 0
-        ? `${base} ${warnings.length} warning(s): ${warnings[0]}`
-        : base,
-    );
-  }, [setIkStatus]);
+  const handleExport = useCallback(() => { runExport(); }, []);
 
   const handleLoadStacOutput = useCallback(async () => {
     const file = await pickFile(".h5");
@@ -257,6 +227,18 @@ export default function Toolbar() {
   return (
     <>
       <button style={btnStyle} onClick={handleLoadXml}>Load XML</button>
+      <select
+        onChange={handlePresetChange}
+        defaultValue=""
+        title="Load a discovered XML by path (needed for models with external mesh assets)"
+        style={{ ...btnStyle, padding: "4px 6px" }}
+      >
+        <option value="" disabled>Load preset…</option>
+        {xmlPresets.map((p) => (
+          <option key={p.path} value={p.path}>{p.name}</option>
+        ))}
+        <option value="__custom__">Custom path…</option>
+      </select>
       <button style={btnStyle} onClick={handleLoadKeypoints}>Load KP</button>
       <button style={btnStyle} onClick={handleLoadMat}>Load .mat</button>
       <button style={btnStyle} onClick={handleLoadAcm}>Load ACM</button>

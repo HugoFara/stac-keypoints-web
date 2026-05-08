@@ -4,6 +4,7 @@ import Timeline from "./components/Timeline";
 import MappingTable from "./components/MappingTable";
 import PropertiesPanel from "./components/PropertiesPanel";
 import Toolbar from "./components/Toolbar";
+import HelpOverlay from "./components/HelpOverlay";
 import { useStore } from "./store";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAutoIk } from "./hooks/useAutoIk";
@@ -47,25 +48,55 @@ export default function App() {
 
       try {
 
-        // 1. Load XML
-        if (!defaults.xmlPath) {
+        // 1. Load XML — prefer the user's last path-loaded XML (preset
+        //    dropdown / Custom path) over the default. The rat-specific
+        //    config + ACM autoload below is skipped when we restore a
+        //    non-default XML, since that machinery is rat-only and would
+        //    overwrite the user's persisted mappings/segment scales.
+        const lastUserPath = localStorage.getItem("stac.lastXmlPath");
+        let xmlPathToLoad = defaults.xmlPath;
+        let restoredFromLast = false;
+        if (lastUserPath && lastUserPath !== defaults.xmlPath) {
+          console.log("[AutoLoad] Trying last user XML:", lastUserPath);
+          const probe = await api.loadXml(lastUserPath);
+          if (!probe.error) {
+            xmlPathToLoad = lastUserPath;
+            restoredFromLast = true;
+          } else {
+            console.warn("[AutoLoad] Last user XML failed, falling back to default:", probe.error);
+          }
+        }
+
+        if (!xmlPathToLoad) {
           setBanner({ kind: "warn", text: "No default model. Use 'Load XML' in the toolbar." });
           return;
         }
-        console.log("[AutoLoad] Loading XML:", defaults.xmlPath);
-        const xmlData = await api.loadXml(defaults.xmlPath);
+        console.log("[AutoLoad] Loading XML:", xmlPathToLoad);
+        const xmlData = await api.loadXml(xmlPathToLoad);
         if (xmlData.error) {
           console.error("[AutoLoad] XML error:", xmlData.error);
-          setBanner({ kind: "error", text: `Failed to load default XML: ${xmlData.error}` });
+          setBanner({ kind: "error", text: `Failed to load XML: ${xmlData.error}` });
           return;
         }
-        setXmlData({ geoms: xmlData.geoms, bodyNames: xmlData.bodyNames, nq: xmlData.nq, xmlPath: defaults.xmlPath });
+        const basename = xmlPathToLoad.split("/").pop() || xmlPathToLoad;
+        setXmlData({
+          geoms: xmlData.geoms,
+          bodyNames: xmlData.bodyNames,
+          nq: xmlData.nq,
+          xmlPath: xmlPathToLoad,
+          xmlBasename: basename,
+        });
 
         // Get default body transforms
         const defaultQpos = new Array(xmlData.nq).fill(0);
         defaultQpos[3] = 1.0;
         const transforms = await api.bodyTransforms(defaultQpos);
         setBodyTransforms(transforms);
+
+        if (restoredFromLast) {
+          console.log("[AutoLoad] Restored last user XML; skipping rat-specific config/ACM autoload.");
+          return;
+        }
 
         // 2. Load config (optional)
         if (defaults.configPath) {
@@ -150,6 +181,7 @@ export default function App() {
       <div style={{ minHeight: 64, maxHeight: 400, background: "#1a1a2e", borderTop: "1px solid #333", display: "flex", alignItems: "stretch", padding: "0 16px", color: "#888", minWidth: 0, overflow: "hidden", flexShrink: 0 }}>
         <Timeline />
       </div>
+      <HelpOverlay />
     </div>
   );
 }

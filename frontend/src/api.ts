@@ -29,6 +29,19 @@ export async function loadXml(path: string) {
   return resp.json();
 }
 
+export interface XmlPreset {
+  name: string;
+  path: string;
+  root: string;
+}
+
+export async function listXmls(): Promise<XmlPreset[]> {
+  const resp = await fetch(`${BASE}/api/list-xmls`);
+  if (!resp.ok) return [];
+  const data = await resp.json();
+  return data.presets ?? [];
+}
+
 export async function uploadXml(file: File) {
   const form = new FormData();
   form.append("file", file);

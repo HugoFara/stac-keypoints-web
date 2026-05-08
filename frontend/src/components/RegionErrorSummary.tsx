@@ -2,11 +2,10 @@ import React from "react";
 import { useStore } from "../store";
 import { errorToColor } from "../errorColor";
 
-// Rodent-specific anatomical regions. Keypoints not present in the current
-// dataset are silently skipped, so this list is safe to keep wide. Other
-// species would need their own table — region definitions belong in a
-// per-species config eventually (M5), but the 3D model itself is the
-// year-scale asset, so swapping a Record literal here is cheap by comparison.
+// Rat anatomical regions, used when the loaded keypoint set contains rat
+// names. For other species we auto-derive groups from L/R name suffixes
+// (see autoRegions). Per-species region tables could go in a config later;
+// rat is hard-coded because that's still by far the most common dataset.
 const RODENT_REGIONS: { name: string; keypoints: string[] }[] = [
   { name: "Head", keypoints: ["Snout", "EarL", "EarR"] },
   { name: "Back", keypoints: ["SpineF", "SpineM", "SpineL", "TailBase"] },
@@ -26,6 +25,37 @@ const RODENT_REGIONS: { name: string; keypoints: string[] }[] = [
   },
 ];
 
+type Region = { name: string; keypoints: string[] };
+type Row = { name: string; count: number; total: number; mean: number; max: number };
+
+// Group keypoints by trailing L/R suffix (rat convention) or leading l/r
+// (fly convention). Anything without a side suffix lands in "Center".
+function autoRegions(kpNames: string[]): Region[] {
+  const left: string[] = [];
+  const right: string[] = [];
+  const center: string[] = [];
+  for (const name of kpNames) {
+    if (/L$/.test(name) || /^l\d/.test(name)) left.push(name);
+    else if (/R$/.test(name) || /^r\d/.test(name)) right.push(name);
+    else center.push(name);
+  }
+  const regions: Region[] = [];
+  if (left.length) regions.push({ name: "Left side", keypoints: left });
+  if (right.length) regions.push({ name: "Right side", keypoints: right });
+  if (center.length) regions.push({ name: "Center / unsided", keypoints: center });
+  return regions;
+}
+
+function summarize(regions: Region[], errorMap: Record<string, number>): Row[] {
+  return regions.map((r) => {
+    const present = r.keypoints.filter((kp) => kp in errorMap);
+    if (present.length === 0) return null;
+    const vals = present.map((kp) => errorMap[kp]);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return { name: r.name, count: present.length, total: r.keypoints.length, mean, max: Math.max(...vals) };
+  }).filter(Boolean) as Row[];
+}
+
 export default function RegionErrorSummary() {
   const errors = useStore((s) => s.perKeypointErrors);
   if (errors.length === 0) return null;
@@ -33,27 +63,11 @@ export default function RegionErrorSummary() {
   const errorMap: Record<string, number> = {};
   for (const e of errors) errorMap[e.keypointName] = e.errorMm;
 
-  const rows = RODENT_REGIONS.map((region) => {
-    const present = region.keypoints.filter((kp) => kp in errorMap);
-    if (present.length === 0) return null;
-    const vals = present.map((kp) => errorMap[kp]);
-    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-    const max = Math.max(...vals);
-    return {
-      name: region.name,
-      count: present.length,
-      total: region.keypoints.length,
-      mean,
-      max,
-    };
-  }).filter(Boolean) as {
-    name: string;
-    count: number;
-    total: number;
-    mean: number;
-    max: number;
-  }[];
-
+  // Try rat regions first; fall back to L/R auto-grouping for other species.
+  let rows = summarize(RODENT_REGIONS, errorMap);
+  if (rows.length === 0) {
+    rows = summarize(autoRegions(Object.keys(errorMap)), errorMap);
+  }
   if (rows.length === 0) return null;
 
   return (

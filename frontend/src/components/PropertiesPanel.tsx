@@ -10,6 +10,7 @@ export default function PropertiesPanel() {
   const offsets = useStore((s) => s.offsets);
   const mappings = useStore((s) => s.mappings);
   const updateOffset = useStore((s) => s.updateOffset);
+  const pushHistory = useStore((s) => s.pushHistory);
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
   const modelRotationY = useStore((s) => s.modelRotationY);
@@ -38,11 +39,23 @@ export default function PropertiesPanel() {
   const setColorByError = useStore((s) => s.setColorByError);
   const showOffsetMarkers = useStore((s) => s.showOffsetMarkers);
   const setShowOffsetMarkers = useStore((s) => s.setShowOffsetMarkers);
+  const acmKeypointNames = useStore((s) => s.acmKeypointNames);
 
   const currentOffset = selectedKp ? offsets.find((o) => o.keypointName === selectedKp) : null;
   const currentMapping = selectedKp ? mappings.find((m) => m.keypointName === selectedKp) : null;
 
   const [showGuide, setShowGuide] = React.useState(true);
+
+  // Only the bones whose endpoints exist in the loaded keypoint set are
+  // editable — non-rat datasets won't have SpineL/SpineM/etc. The Skeleton
+  // Editor section hides itself entirely when none apply.
+  const kpSet = React.useMemo(() => new Set(acmKeypointNames), [acmKeypointNames]);
+  const applicableBones = React.useMemo(
+    () => RETARGET_TREE.filter((b) => kpSet.has(b.parent) && kpSet.has(b.child)),
+    [kpSet],
+  );
+  const primaryBones = applicableBones.filter((b) => PRIMARY_SEGMENTS.has(segmentKey(b.parent, b.child)));
+  const secondaryBones = applicableBones.filter((b) => !PRIMARY_SEGMENTS.has(segmentKey(b.parent, b.child)));
 
   const segmentSlider = (bone: { parent: string; child: string }, small?: boolean) => {
     const key = segmentKey(bone.parent, bone.child);
@@ -80,13 +93,13 @@ export default function PropertiesPanel() {
         {showGuide && (
           <div style={{ fontSize: 11, color: "#999", lineHeight: 1.6, padding: "4px 0" }}>
             <div style={{ color: "#ffcc00", fontWeight: 600, marginBottom: 2 }}>Step 1: Skeleton Editor</div>
-            <div>Adjust ACM spine proportions to match the MuJoCo model. Shorten <code>SpineL→SpineM</code> and <code>SpineM→SpineF</code> (typically ~0.6x).</div>
+            <div>Adjust skeleton proportions to match the MuJoCo model. (Rat datasets typically need spine segments shortened ~0.6x.)</div>
             <div style={{ color: "#ffcc00", fontWeight: 600, marginTop: 6, marginBottom: 2 }}>Step 2: Mapping (press 1)</div>
             <div>Verify each <span style={{ color: "#ffaa00" }}>ACM keypoint</span> is assigned to the correct <span style={{ color: "#66bbff" }}>MuJoCo body</span>. Click a keypoint → click a body or pick from the list.</div>
             <div style={{ color: "#ffcc00", fontWeight: 600, marginTop: 6, marginBottom: 2 }}>Step 3: Offsets (press 2)</div>
             <div>Drag <span style={{ color: "#00ff88" }}>green offset markers</span> (on the MuJoCo model) to align with the stationary <span style={{ color: "#ffaa00" }}>ACM keypoints</span>. IK auto-runs to show the result.</div>
             <div style={{ color: "#ffcc00", fontWeight: 600, marginTop: 6, marginBottom: 2 }}>Step 4: Validate</div>
-            <div>Click <b>IK Sequence</b> to run IK on all frames. Scrub the timeline and use Follow Rodent to evaluate. Iterate steps 1-3 as needed.</div>
+            <div>Click <b>IK Sequence</b> to run IK on all frames. Scrub the timeline and use Follow Subject to evaluate. Iterate steps 1-3 as needed.</div>
             <div style={{ color: "#ffcc00", fontWeight: 600, marginTop: 6, marginBottom: 2 }}>Step 5: Export</div>
             <div>Click <b>Export</b> to save the config (mappings, offsets, segment scales) for use with the STAC pipeline.</div>
           </div>
@@ -123,7 +136,7 @@ export default function PropertiesPanel() {
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#888", cursor: "pointer" }}>
           <input type="checkbox" checked={followCamera} onChange={(e) => setFollowCamera(e.target.checked)} />
-          Follow Rodent
+          Follow Subject
         </label>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: autoIk ? "#8f8" : "#888", cursor: "pointer" }}>
           <input type="checkbox" checked={autoIk} onChange={(e) => setAutoIk(e.target.checked)} />
@@ -206,6 +219,7 @@ export default function PropertiesPanel() {
                   <input
                     type="number" step={0.001}
                     value={currentOffset?.[axis] ?? 0}
+                    onFocus={pushHistory}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value) || 0;
                       const o = currentOffset || { x: 0, y: 0, z: 0 };
@@ -224,43 +238,44 @@ export default function PropertiesPanel() {
         </div>
       )}
 
-      {/* Skeleton Editor */}
-      <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <h3 style={{ margin: 0, fontSize: 14, color: "#aaa" }}>Skeleton Editor</h3>
-          <button
-            onClick={resetSegmentScales}
-            style={{ ...btnStyle, padding: "2px 8px", fontSize: 10 }}
-          >
-            Reset
-          </button>
-        </div>
-        <div style={{ fontSize: 11, color: "#77aaff", marginBottom: 6 }}>
-          Adjust segment lengths. Downstream keypoints propagate.
-        </div>
-        {RETARGET_TREE.filter((b) => PRIMARY_SEGMENTS.has(segmentKey(b.parent, b.child))).map((bone) => segmentSlider(bone))}
-        <details style={{ marginTop: 4 }}>
-          <summary style={{ cursor: "pointer", color: "#777", fontSize: 11 }}>Fine-tune limb segments</summary>
-          <div style={{ marginTop: 4 }}>
-            {RETARGET_TREE.filter((b) => !PRIMARY_SEGMENTS.has(segmentKey(b.parent, b.child))).map((bone) => segmentSlider(bone, true))}
+      {/* Skeleton Editor — only renders if any rat-tree bones apply to the
+          loaded keypoint set. Non-rat data falls through silently. */}
+      {applicableBones.length > 0 && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+            <h3 style={{ margin: 0, fontSize: 14, color: "#aaa" }}>Skeleton Editor</h3>
+            <button
+              onClick={resetSegmentScales}
+              style={{ ...btnStyle, padding: "2px 8px", fontSize: 10 }}
+            >
+              Reset
+            </button>
           </div>
-        </details>
-      </div>
+          <div style={{ fontSize: 11, color: "#77aaff", marginBottom: 6 }}>
+            Adjust segment lengths. Downstream keypoints propagate.
+          </div>
+          {primaryBones.map((bone) => segmentSlider(bone))}
+          {secondaryBones.length > 0 && (
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ cursor: "pointer", color: "#777", fontSize: 11 }}>Fine-tune limb segments</summary>
+              <div style={{ marginTop: 4 }}>
+                {secondaryBones.map((bone) => segmentSlider(bone, true))}
+              </div>
+            </details>
+          )}
+        </div>
+      )}
 
-      {/* Keyboard shortcuts reference */}
-      <details style={{ fontSize: 11, color: "#666" }}>
-        <summary style={{ cursor: "pointer", color: "#888", fontSize: 12 }}>Shortcuts</summary>
-        <pre style={{ margin: "4px 0 0", lineHeight: 1.6, whiteSpace: "pre", fontFamily: "monospace" }}>
-{`Space     Play/Pause
-\u2190 \u2192       Prev/Next (Shift: \u00b110)
-WASD      Pan camera
-QE        Orbit camera
-RF        Camera up/down
-1/2       Mapping/Offset mode
-L         Label frame
-Esc       Deselect`}
-        </pre>
-      </details>
+      {/* Keyboard shortcuts \u2014 full list lives in the help overlay (?/H). */}
+      <button
+        onClick={() => useStore.getState().setHelpOpen(true)}
+        style={{
+          background: "transparent", border: "none", color: "#888",
+          fontSize: 12, cursor: "pointer", padding: 0, textAlign: "left",
+        }}
+      >
+        Shortcuts (press ? or H)
+      </button>
 
       {/* Global Controls (rotation/position — collapsible) */}
       <details>

@@ -104,36 +104,22 @@ export default function GapHeatmap() {
   }, []);
 
   const topOffset = minConfPerFrame ? CONF_ROW_HEIGHT : 0;
+  const plotW = Math.max(1, width - LABEL_WIDTH);
+  const plotH = topOffset + numKeypoints * ROW_HEIGHT;
 
-  // Paint the heatmap whenever data, width, or cursor changes.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !mask || numFrames === 0 || numKeypoints === 0) return;
-    const dpr = window.devicePixelRatio || 1;
-    const plotW = Math.max(1, width - LABEL_WIDTH);
-    const plotH = topOffset + numKeypoints * ROW_HEIGHT;
-    canvas.width = (LABEL_WIDTH + plotW) * dpr;
-    canvas.height = plotH * dpr;
-    canvas.style.height = `${plotH}px`;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, LABEL_WIDTH + plotW, plotH);
+  // Build the heatmap ImageData once per data/width change. Recomputing this
+  // on every cursor move was the dominant cost on long timelines:
+  // O(numKp × plotW × frames-per-bucket), i.e. tens of millions of ops at 100
+  // kp × 200k frames per scrub event.
+  const gridImg = useMemo(() => {
+    if (!mask || numFrames === 0 || numKeypoints === 0 || plotW <= 0 || plotH <= 0) return null;
+    const data = new Uint8ClampedArray(plotW * plotH * 4);
 
-    // Bucket frames into pixel columns. Each column's color is the missing
-    // ratio across the frames it covers — interpolated between PRESENT and
-    // MISSING. Pure ImageData manipulation for speed on long timelines.
-    const img = ctx.createImageData(plotW, plotH);
-
-    // Min-confidence header row. Color stretches over [CONF_RED_AT,
-    // CONF_GREEN_AT] so dips into 0.5–0.7 territory read clearly orange,
-    // not green-with-asterisk.
     if (minConfPerFrame) {
       const span = Math.max(1e-6, CONF_GREEN_AT - CONF_RED_AT);
       for (let x = 0; x < plotW; x++) {
         const fStart = Math.floor((x / plotW) * numFrames);
         const fEnd = Math.max(fStart + 1, Math.floor(((x + 1) / plotW) * numFrames));
-        // Min over the bucket — sensitive to any low-conf frame in the range.
         let bucketMin = Infinity;
         for (let f = fStart; f < fEnd; f++) {
           const c = minConfPerFrame[f];
@@ -141,27 +127,22 @@ export default function GapHeatmap() {
         }
         let ratio: number;
         if (!Number.isFinite(bucketMin)) {
-          ratio = 1;  // no data in bucket → red
+          ratio = 1;
         } else {
           const norm = Math.max(0, Math.min(1, (bucketMin - CONF_RED_AT) / span));
-          ratio = 1 - norm;  // 0 = high conf, 1 = low/none
+          ratio = 1 - norm;
         }
         const r = Math.round(PRESENT_COLOR[0] + ratio * (MISSING_COLOR[0] - PRESENT_COLOR[0]));
         const g = Math.round(PRESENT_COLOR[1] + ratio * (MISSING_COLOR[1] - PRESENT_COLOR[1]));
         const b = Math.round(PRESENT_COLOR[2] + ratio * (MISSING_COLOR[2] - PRESENT_COLOR[2]));
         for (let dy = 0; dy < CONF_ROW_HEIGHT; dy++) {
           const px = (dy * plotW + x) * 4;
-          // Last row pixel = separator from the keypoint grid below.
           if (dy === CONF_ROW_HEIGHT - 1) {
-            img.data[px] = 30;
-            img.data[px + 1] = 30;
-            img.data[px + 2] = 40;
+            data[px] = 30; data[px + 1] = 30; data[px + 2] = 40;
           } else {
-            img.data[px] = r;
-            img.data[px + 1] = g;
-            img.data[px + 2] = b;
+            data[px] = r; data[px + 1] = g; data[px + 2] = b;
           }
-          img.data[px + 3] = 255;
+          data[px + 3] = 255;
         }
       }
     }
@@ -171,34 +152,42 @@ export default function GapHeatmap() {
         const fStart = Math.floor((x / plotW) * numFrames);
         const fEnd = Math.max(fStart + 1, Math.floor(((x + 1) / plotW) * numFrames));
         let miss = 0;
-        const span = fEnd - fStart;
+        const fSpan = fEnd - fStart;
         for (let f = fStart; f < fEnd; f++) miss += mask[k * numFrames + f];
-        const ratio = miss / span;
+        const ratio = miss / fSpan;
         const r = Math.round(PRESENT_COLOR[0] + ratio * (MISSING_COLOR[0] - PRESENT_COLOR[0]));
         const g = Math.round(PRESENT_COLOR[1] + ratio * (MISSING_COLOR[1] - PRESENT_COLOR[1]));
         const b = Math.round(PRESENT_COLOR[2] + ratio * (MISSING_COLOR[2] - PRESENT_COLOR[2]));
         for (let dy = 0; dy < ROW_HEIGHT; dy++) {
           const y = topOffset + k * ROW_HEIGHT + dy;
-          // Leave a 1px gap between rows for legibility.
-          if (dy === ROW_HEIGHT - 1 && ROW_HEIGHT > 2) {
-            const px = (y * plotW + x) * 4;
-            img.data[px] = 20;
-            img.data[px + 1] = 20;
-            img.data[px + 2] = 30;
-            img.data[px + 3] = 255;
-            continue;
-          }
           const px = (y * plotW + x) * 4;
-          img.data[px] = r;
-          img.data[px + 1] = g;
-          img.data[px + 2] = b;
-          img.data[px + 3] = 255;
+          if (dy === ROW_HEIGHT - 1 && ROW_HEIGHT > 2) {
+            data[px] = 20; data[px + 1] = 20; data[px + 2] = 30;
+          } else {
+            data[px] = r; data[px + 1] = g; data[px + 2] = b;
+          }
+          data[px + 3] = 255;
         }
       }
     }
-    ctx.putImageData(img, LABEL_WIDTH, 0);
+    return new ImageData(data, plotW, plotH);
+  }, [mask, minConfPerFrame, numFrames, numKeypoints, plotW, plotH, topOffset]);
 
-    // Clip boundaries — light vertical ticks at every n_frames_per_clip.
+  // Paint: stamp the cached grid + draw cursor. Cheap enough to run on every
+  // currentFrame change (single ImageData blit + a 1px line).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !gridImg) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = (LABEL_WIDTH + plotW) * dpr;
+    canvas.height = plotH * dpr;
+    canvas.style.height = `${plotH}px`;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, LABEL_WIDTH + plotW, plotH);
+    ctx.putImageData(gridImg, LABEL_WIDTH, 0);
+
     const clipSize = clipFramesPerClip(rawTemplate);
     if (clipSize > 0 && clipSize < numFrames) {
       ctx.fillStyle = "rgba(255,255,255,0.08)";
@@ -208,17 +197,14 @@ export default function GapHeatmap() {
       }
     }
 
-    // Cursor line for current frame.
     if (numFrames > 1) {
       const cx = LABEL_WIDTH + Math.floor((currentFrame / (numFrames - 1)) * (plotW - 1));
       ctx.fillStyle = "rgba(255, 220, 80, 0.95)";
       ctx.fillRect(cx, 0, 1, plotH);
     }
-  }, [mask, minConfPerFrame, numFrames, numKeypoints, width, currentFrame, rawTemplate, topOffset]);
+  }, [gridImg, currentFrame, numFrames, plotW, plotH, rawTemplate]);
 
   if (!mask || numFrames === 0 || numKeypoints === 0) return null;
-
-  const plotW = Math.max(1, width - LABEL_WIDTH);
 
   const xToFrame = (clientX: number): number | null => {
     const canvas = canvasRef.current;
