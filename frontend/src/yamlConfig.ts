@@ -42,10 +42,17 @@ function portableMjcf(config: Dict): string {
   return xmlPath;
 }
 
+/** Mimic Python's `f"{n}"` for floats: integers get ".0" so "0" → "0.0". */
+function pyFloatStr(n: number): string {
+  if (!Number.isFinite(n)) return String(n);
+  if (Number.isInteger(n)) return n.toFixed(1);
+  return String(n);
+}
+
 function offsetsToYaml(offsets: Record<string, [number, number, number]>): Dict {
   const out: Dict = {};
   for (const [kp, v] of Object.entries(offsets)) {
-    out[kp] = `${v[0]} ${v[1]} ${v[2]}`;
+    out[kp] = `${pyFloatStr(v[0])} ${pyFloatStr(v[1])} ${pyFloatStr(v[2])}`;
   }
   return out;
 }
