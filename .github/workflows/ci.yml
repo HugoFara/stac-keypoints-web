@@ -69,6 +69,12 @@ jobs:
       - name: Install backend (for parity tests)
         run: pip install -e ".[dev]"
 
+      # synth_stress.h5 is gitignored (~40 MB). Regenerate a smaller fixture
+      # for the parity test — the test is size-agnostic, it only spot-checks
+      # JS vs Python parity at 1000 random indices.
+      - name: Generate synth_stress fixture
+        run: python tools/make_synth_dataset.py --frames 5000 --keypoints 30 --out data/synth_stress.h5
+
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
