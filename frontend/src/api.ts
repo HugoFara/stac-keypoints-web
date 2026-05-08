@@ -1,4 +1,33 @@
+import * as local from "./localApi";
+
 const BASE = "";
+
+let _backendOk: boolean | null = null;
+let _backendProbe: Promise<boolean> | null = null;
+
+/** One-shot HEAD /api/health probe with 1s timeout. Cached for the session. */
+async function backendOk(): Promise<boolean> {
+  if (_backendOk !== null) return _backendOk;
+  if (_backendProbe) return _backendProbe;
+  _backendProbe = (async () => {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 1000);
+      const r = await fetch(`${BASE}/api/health`, { signal: ctrl.signal });
+      clearTimeout(t);
+      _backendOk = r.ok;
+    } catch {
+      _backendOk = false;
+    }
+    return _backendOk!;
+  })();
+  return _backendProbe;
+}
+
+/** True iff the backend is reachable (resolves after first probe). */
+export async function isBackendAvailable(): Promise<boolean> {
+  return backendOk();
+}
 
 export async function health(): Promise<{ status: string }> {
   const resp = await fetch(`${BASE}/api/health`);
@@ -18,6 +47,16 @@ let _defaultsCache: Defaults | null = null;
 
 export async function getDefaults(): Promise<Defaults> {
   if (_defaultsCache) return _defaultsCache;
+  if (!(await backendOk())) {
+    _defaultsCache = {
+      xmlPath: "data/rodent_relaxed.xml",
+      configPath: "data/stac_config.json",
+      stacOutputPath: null,
+      acmTrials: 5,
+      monseesRetarget: null,
+    };
+    return _defaultsCache;
+  }
   const resp = await fetch(`${BASE}/api/defaults`);
   if (!resp.ok) throw new Error(`getDefaults: HTTP ${resp.status}`);
   _defaultsCache = await resp.json();
@@ -25,6 +64,7 @@ export async function getDefaults(): Promise<Defaults> {
 }
 
 export async function loadXml(path: string) {
+  if (!(await backendOk())) return local.loadXml(path);
   const resp = await fetch(`${BASE}/api/load-xml?path=${encodeURIComponent(path)}`, { method: "POST" });
   return resp.json();
 }
@@ -36,6 +76,9 @@ export interface XmlPreset {
 }
 
 export async function listXmls(): Promise<XmlPreset[]> {
+  if (!(await backendOk())) {
+    return [{ name: "rodent (bundled)", path: "data/rodent_relaxed.xml", root: "bundled" }];
+  }
   const resp = await fetch(`${BASE}/api/list-xmls`);
   if (!resp.ok) return [];
   const data = await resp.json();
@@ -50,11 +93,13 @@ export async function uploadXml(file: File) {
 }
 
 export async function loadAcmTrials(maxTrials = 5, decimate = 2) {
+  if (!(await backendOk())) return local.loadAcmTrials(maxTrials, decimate);
   const resp = await fetch(`${BASE}/api/load-acm?max_trials=${maxTrials}&decimate=${decimate}`, { method: "POST" });
   return resp.json();
 }
 
 export async function loadMatFile(path: string) {
+  if (!(await backendOk())) return local.loadMatFile(path);
   const resp = await fetch(`${BASE}/api/load-matfile?path=${encodeURIComponent(path)}`, { method: "POST" });
   return resp.json();
 }
@@ -81,6 +126,7 @@ export async function uploadKeypoints(file: File, kpNames?: string[]) {
 }
 
 export async function loadConfig(path: string) {
+  if (!(await backendOk())) return local.loadConfig(path);
   const resp = await fetch(`${BASE}/api/load-config?path=${encodeURIComponent(path)}`, { method: "POST" });
   return resp.json();
 }
@@ -130,6 +176,7 @@ export async function exportUiSidecar(config: Record<string, unknown>): Promise<
 }
 
 export async function alignToMujoco(data: Record<string, unknown>) {
+  if (!(await backendOk())) return local.alignToMujoco(data);
   const resp = await fetch(`${BASE}/api/align`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -139,6 +186,7 @@ export async function alignToMujoco(data: Record<string, unknown>) {
 }
 
 export async function suggestFrames(data: Record<string, unknown>) {
+  if (!(await backendOk())) return local.suggestFrames(data);
   const resp = await fetch(`${BASE}/api/suggest-frames`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -148,6 +196,7 @@ export async function suggestFrames(data: Record<string, unknown>) {
 }
 
 export async function bodyTransforms(qpos: number[]) {
+  if (!(await backendOk())) return local.bodyTransforms(qpos);
   const resp = await fetch(`${BASE}/api/body-transforms`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -166,6 +215,7 @@ export async function batchBodyTransforms(qposList: number[][]) {
 }
 
 export async function loadStacOutput(path: string) {
+  if (!(await backendOk())) return local.loadStacOutput(path);
   const resp = await fetch(`${BASE}/api/load-stac-output?path=${encodeURIComponent(path)}`, { method: "POST" });
   return resp.json();
 }
@@ -178,6 +228,7 @@ export async function uploadStacOutput(file: File) {
 }
 
 export async function runQuickStac(data: Record<string, unknown>) {
+  if (!(await backendOk())) return local.runQuickStac(data);
   const resp = await fetch(`${BASE}/api/run-quick-stac`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
