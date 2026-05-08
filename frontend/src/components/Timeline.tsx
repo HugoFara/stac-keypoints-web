@@ -97,39 +97,43 @@ export default function Timeline() {
     }
   };
 
+  // Status dots \u2014 one marker per labeled/validated frame, positioned by frame
+  // index so they line up with the slider and heatmap cursor. Up to ~100 dots
+  // shown so the row stays readable on long timelines. Computed before the
+  // early return below so the hook order stays stable.
+  const dots = useMemo(() => {
+    const step = Math.max(1, Math.floor(numFrames / 100));
+    const out: React.ReactElement[] = [];
+    for (let i = 0; i < numFrames; i += step) {
+      const status = frameStatuses[i] || "unlabeled";
+      if (status === "unlabeled") continue;
+      const color = status === "validated" ? "#00cc44" : "#ffaa00";
+      const left = numFrames > 1 ? (i / (numFrames - 1)) * 100 : 0;
+      out.push(
+        <div
+          key={i}
+          onClick={() => setCurrentFrame(i)}
+          style={{
+            position: "absolute",
+            left: `calc(${left}% - 3px)`,
+            top: 1,
+            width: 6,
+            height: 6,
+            borderRadius: 3,
+            background: color,
+            cursor: "pointer",
+          }}
+        />
+      );
+    }
+    return out;
+  }, [frameStatuses, numFrames, setCurrentFrame]);
+
   if (numFrames === 0) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", color: "#555" }}>
         Load ACM data to enable timeline
       </div>
-    );
-  }
-
-  // Status dots \u2014 one marker per labeled/validated frame, positioned by frame
-  // index so they line up with the slider and heatmap cursor. Up to ~100 dots
-  // shown so the row stays readable on long timelines.
-  const step = Math.max(1, Math.floor(numFrames / 100));
-  const dots = [];
-  for (let i = 0; i < numFrames; i += step) {
-    const status = frameStatuses[i] || "unlabeled";
-    if (status === "unlabeled") continue;
-    const color = status === "validated" ? "#00cc44" : "#ffaa00";
-    const left = numFrames > 1 ? (i / (numFrames - 1)) * 100 : 0;
-    dots.push(
-      <div
-        key={i}
-        onClick={() => setCurrentFrame(i)}
-        style={{
-          position: "absolute",
-          left: `calc(${left}% - 3px)`,
-          top: 1,
-          width: 6,
-          height: 6,
-          borderRadius: 3,
-          background: color,
-          cursor: "pointer",
-        }}
-      />
     );
   }
 
