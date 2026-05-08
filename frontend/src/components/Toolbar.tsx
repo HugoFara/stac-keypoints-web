@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import * as api from "../api";
 import { runIk } from "../ikRunner";
 import { runAlignment, formatAlignStatus } from "../alignment";
-import { validateMappings } from "../validation";
+import { runExport } from "../exportConfig";
 
 /** Open a transient native file picker and resolve with the chosen File. */
 function pickFile(accept: string): Promise<File | null> {
@@ -15,19 +15,6 @@ function pickFile(accept: string): Promise<File | null> {
     input.oncancel = () => resolve(null);
     input.click();
   });
-}
-
-/** Trigger a browser download for a YAML document. */
-function downloadYaml(body: string, filename: string) {
-  const blob = new Blob([body], { type: "application/x-yaml" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 export default function Toolbar() {
@@ -135,61 +122,7 @@ export default function Toolbar() {
     setIkStatus(formatAlignStatus(outcome));
   }, [setIkStatus]);
 
-  const handleExport = useCallback(async () => {
-    const state = useStore.getState();
-
-    const { errors, warnings } = validateMappings({
-      mappings: state.mappings,
-      bodyNames: state.bodyNames,
-      acmKeypointNames: state.acmKeypointNames,
-    });
-    if (errors.length > 0) {
-      setIkStatus(
-        `Export blocked: ${errors.length} error(s). First: ${errors[0]}`,
-      );
-      return;
-    }
-
-    const pairs: Record<string, string> = {};
-    for (const m of state.mappings) pairs[m.keypointName] = m.bodyName;
-    const offsetMap: Record<string, [number, number, number]> = {};
-    for (const o of state.offsets) offsetMap[o.keypointName] = [o.x, o.y, o.z];
-    const config: Record<string, unknown> = {
-      keypointModelPairs: pairs,
-      keypointInitialOffsets: offsetMap,
-      scaleFactor: state.scaleFactor,
-      mocapScaleFactor: state.mocapScaleFactor,
-      xmlPath: state.xmlPath || "",
-      xmlBasename: state.xmlBasename,
-      kpNames: state.acmKeypointNames,
-      segmentScales: state.segmentScales,
-    };
-    if (state.rawTemplate) config._rawTemplate = state.rawTemplate;
-
-    let mainBody: string;
-    let sidecarBody: string | null;
-    try {
-      [mainBody, sidecarBody] = await Promise.all([
-        api.exportConfig(config),
-        api.exportUiSidecar(config),
-      ]);
-    } catch (e) {
-      setIkStatus("Export error: " + (e as Error).message);
-      return;
-    }
-    downloadYaml(mainBody, "stac_retarget_config.yaml");
-    if (sidecarBody) {
-      downloadYaml(sidecarBody, "stac_retarget_config.ui.yaml");
-    }
-    const base = sidecarBody
-      ? "Config + UI sidecar downloaded."
-      : "Config downloaded.";
-    setIkStatus(
-      warnings.length > 0
-        ? `${base} ${warnings.length} warning(s): ${warnings[0]}`
-        : base,
-    );
-  }, [setIkStatus]);
+  const handleExport = useCallback(() => { runExport(); }, []);
 
   const handleLoadStacOutput = useCallback(async () => {
     const file = await pickFile(".h5");

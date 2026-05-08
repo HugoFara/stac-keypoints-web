@@ -266,22 +266,16 @@ export default function PropertiesPanel() {
         </div>
       )}
 
-      {/* Keyboard shortcuts reference */}
-      <details style={{ fontSize: 11, color: "#666" }}>
-        <summary style={{ cursor: "pointer", color: "#888", fontSize: 12 }}>Shortcuts</summary>
-        <pre style={{ margin: "4px 0 0", lineHeight: 1.6, whiteSpace: "pre", fontFamily: "monospace" }}>
-{`Space     Play/Pause
-\u2190 \u2192       Prev/Next (Shift: \u00b110)
-WASD      Pan camera
-QE        Orbit camera
-RF        Camera up/down
-1/2       Mapping/Offset mode
-L         Label frame
-Esc       Deselect
-\u2318/Ctrl-Z   Undo mapping/offset
-\u2318/Ctrl-\u21e7Z  Redo`}
-        </pre>
-      </details>
+      {/* Keyboard shortcuts \u2014 full list lives in the help overlay (?/H). */}
+      <button
+        onClick={() => useStore.getState().setHelpOpen(true)}
+        style={{
+          background: "transparent", border: "none", color: "#888",
+          fontSize: 12, cursor: "pointer", padding: 0, textAlign: "left",
+        }}
+      >
+        Shortcuts (press ? or H)
+      </button>
 
       {/* Global Controls (rotation/position — collapsible) */}
       <details>

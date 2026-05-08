@@ -4,6 +4,7 @@ import Timeline from "./components/Timeline";
 import MappingTable from "./components/MappingTable";
 import PropertiesPanel from "./components/PropertiesPanel";
 import Toolbar from "./components/Toolbar";
+import HelpOverlay from "./components/HelpOverlay";
 import { useStore } from "./store";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useAutoIk } from "./hooks/useAutoIk";
@@ -150,6 +151,7 @@ export default function App() {
       <div style={{ minHeight: 64, maxHeight: 400, background: "#1a1a2e", borderTop: "1px solid #333", display: "flex", alignItems: "stretch", padding: "0 16px", color: "#888", minWidth: 0, overflow: "hidden", flexShrink: 0 }}>
         <Timeline />
       </div>
+      <HelpOverlay />
     </div>
   );
 }

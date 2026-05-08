@@ -63,6 +63,7 @@ interface AppState {
   mode: InteractionMode;
   selectedKeypoint: string | null;
   selectedBody: string | null;
+  helpOpen: boolean;
 
   // Timeline
   currentFrame: number;
@@ -142,6 +143,8 @@ interface AppState {
   setMode: (mode: InteractionMode) => void;
   setSelectedKeypoint: (name: string | null) => void;
   setSelectedBody: (name: string | null) => void;
+  setHelpOpen: (open: boolean) => void;
+  toggleHelp: () => void;
   addMapping: (kp: string, body: string) => void;
   removeMapping: (kp: string) => void;
   updateOffset: (kp: string, x: number, y: number, z: number) => void;
@@ -195,6 +198,7 @@ export const useStore = create<AppState>()(persist((set) => ({
   mode: "mapping",
   selectedKeypoint: null,
   selectedBody: null,
+  helpOpen: false,
   currentFrame: 0,
   isPlaying: false,
   frameStatuses: [],
@@ -277,6 +281,8 @@ export const useStore = create<AppState>()(persist((set) => ({
   setMode: (mode) => set({ mode }),
   setSelectedKeypoint: (name) => set({ selectedKeypoint: name }),
   setSelectedBody: (name) => set({ selectedBody: name }),
+  setHelpOpen: (open) => set({ helpOpen: open }),
+  toggleHelp: () => set((s) => ({ helpOpen: !s.helpOpen })),
   addMapping: (kp, body) => set((state) => {
     const filtered = state.mappings.filter((m) => m.keypointName !== kp);
     return {
