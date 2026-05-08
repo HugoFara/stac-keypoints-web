@@ -367,6 +367,7 @@ export const useStore = create<AppState>()(persist((set) => ({
     showGlobalControls: state.showGlobalControls,
     showErrorLines: state.showErrorLines,
     showOffsetMarkers: state.showOffsetMarkers,
+    colorByError: state.colorByError,
     autoIk: state.autoIk,
     followCamera: state.followCamera,
     mode: state.mode,
