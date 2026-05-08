@@ -14,29 +14,74 @@ import {
 import { loadKeypointsFromBytes } from "./h5KeypointsLoader";
 import { dumpStacYaml, dumpStacUiSidecar } from "./yamlConfig";
 
-let cachedAcmData: any = null;
-let cachedConfig: any = null;
+const cachedAcm: Record<string, unknown> = {};
+const cachedConfigByPath: Record<string, unknown> = {};
 
-const DATA_BASE = import.meta.env.BASE_URL + "data/";
+/** Bundled species index — extend by dropping a dir into `frontend/public/data/`
+ * via `scripts/precompute_species.py` (or precompute_assets.py for rat). */
+interface BundledSpecies {
+  name: string;
+  /** Path used by listXmls + loadXml/loadConfig. */
+  xmlPath: string;
+  configPath: string;
+  /** True iff a bundled ACM-style demo dataset accompanies the species. */
+  hasDemoData: boolean;
+}
 
-export async function loadXml(_path?: string) {
+const BUNDLED: BundledSpecies[] = [
+  {
+    name: "rat (bundled, with demo)",
+    xmlPath: "data/rat/rodent_relaxed.xml",
+    configPath: "data/rat/stac_config.json",
+    hasDemoData: true,
+  },
+  {
+    name: "stick (bundled, no demo)",
+    xmlPath: "data/stick/sungaya_inexpectata_box.xml",
+    configPath: "data/stick/stac_config.json",
+    hasDemoData: false,
+  },
+];
+
+const BUNDLED_BY_XML = Object.fromEntries(BUNDLED.map((s) => [s.xmlPath, s]));
+
+/** Resolve a bundled-data URL from a virtual path like `data/rat/foo.json`. */
+function bundledUrl(path: string): string {
+  return import.meta.env.BASE_URL + path;
+}
+
+export function bundledSpecies(): BundledSpecies[] {
+  return BUNDLED;
+}
+
+export async function loadXml(path?: string) {
   await initMuJoCo();
-  await loadXmlFromUrl(DATA_BASE + "rodent_relaxed.xml");
+  const target = path && BUNDLED_BY_XML[path]
+    ? path
+    : BUNDLED[0].xmlPath;
+  await loadXmlFromUrl(bundledUrl(target));
   return extractGeometry();
 }
 
 export async function loadAcmTrials(_maxTrials?: number, _decimate?: number) {
-  if (!cachedAcmData) {
-    const resp = await fetch(DATA_BASE + "acm_keypoints.json");
-    cachedAcmData = await resp.json();
+  // Only bundled species with demo data have ACM-style fixtures. For others,
+  // return an empty result; the Toolbar's "Load Keypoints" upload path is the
+  // intended flow.
+  const species = BUNDLED[0]; // rat is the only one with demo for now
+  if (!species.hasDemoData) {
+    return { keypointNames: [], bones: [], positions: [], numFrames: 0, numKeypoints: 0 };
   }
-  return cachedAcmData;
+  const url = bundledUrl(species.xmlPath.replace(/\/[^/]+\.xml$/, "/acm_keypoints.json"));
+  if (!cachedAcm[url]) {
+    const resp = await fetch(url);
+    cachedAcm[url] = await resp.json();
+  }
+  return cachedAcm[url];
 }
 
 export async function loadMatFile(_path: string) {
-  // Standalone mode can't read paths from disk; the bundled rodent demo is
-  // the only data source without an upload. Toolbar uses uploadMatFile for
-  // user files.
+  // Standalone mode can't read server-side paths. Toolbar uses uploadMatFile
+  // for user files; this path remains as the legacy "load demo trial" hook.
   return loadAcmTrials();
 }
 
@@ -57,12 +102,20 @@ export async function uploadMatFile(file: File) {
   return uploadKeypoints(file);
 }
 
-export async function loadConfig(_path?: string) {
-  if (!cachedConfig) {
-    const resp = await fetch(DATA_BASE + "stac_config.json");
-    cachedConfig = await resp.json();
+export async function loadConfig(path?: string) {
+  // Resolve config from species table when caller passes a known XML or
+  // config path; default to rat's config otherwise.
+  let configPath = BUNDLED[0].configPath;
+  if (path) {
+    const species = BUNDLED_BY_XML[path];
+    if (species) configPath = species.configPath;
+    else if (BUNDLED.some((s) => s.configPath === path)) configPath = path;
   }
-  return cachedConfig;
+  if (!cachedConfigByPath[configPath]) {
+    const resp = await fetch(bundledUrl(configPath));
+    cachedConfigByPath[configPath] = await resp.json();
+  }
+  return cachedConfigByPath[configPath];
 }
 
 /** Match api.exportConfig: returns the YAML body as a string. The caller

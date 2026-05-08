@@ -49,8 +49,8 @@ export async function getDefaults(): Promise<Defaults> {
   if (_defaultsCache) return _defaultsCache;
   if (!(await backendOk())) {
     _defaultsCache = {
-      xmlPath: "data/rodent_relaxed.xml",
-      configPath: "data/stac_config.json",
+      xmlPath: "data/rat/rodent_relaxed.xml",
+      configPath: "data/rat/stac_config.json",
       stacOutputPath: null,
       acmTrials: 5,
       monseesRetarget: null,
@@ -77,7 +77,11 @@ export interface XmlPreset {
 
 export async function listXmls(): Promise<XmlPreset[]> {
   if (!(await backendOk())) {
-    return [{ name: "rodent (bundled)", path: "data/rodent_relaxed.xml", root: "bundled" }];
+    return local.bundledSpecies().map((s) => ({
+      name: s.name,
+      path: s.xmlPath,
+      root: "bundled",
+    }));
   }
   const resp = await fetch(`${BASE}/api/list-xmls`);
   if (!resp.ok) return [];
