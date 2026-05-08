@@ -1,17 +1,6 @@
 /**
  * Browser-side MuJoCo WASM module.
- * Provides geometry extraction, body transforms, and Jacobian IK
- * using the mujoco-js (mujoco-wasm) package.
- *
- * API patterns based on the mujoco-wasm demo:
- *   import load_mujoco from "mujoco-js/dist/mujoco_wasm.js";
- *   const mujoco = await load_mujoco();
- *   mujoco.FS.mkdir('/working');
- *   mujoco.FS.mount(mujoco.MEMFS, { root: '.' }, '/working');
- *   mujoco.FS.writeFile("/working/model.xml", xmlText);
- *   let model = mujoco.MjModel.loadFromXML("/working/model.xml");
- *   let data  = new mujoco.MjData(model);
- *   mujoco.mj_forward(model, data);
+ * Uses the official @mujoco/mujoco package (DeepMind, MuJoCo 3.x WASM bindings).
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -25,7 +14,7 @@ let cachedBodyNames: string[] = [];
 
 export async function initMuJoCo(): Promise<void> {
   if (mjModule) return;
-  const loadMujoco = (await import("mujoco-js/dist/mujoco_wasm.js")).default;
+  const loadMujoco = (await import("@mujoco/mujoco")).default;
   mjModule = await loadMujoco();
   mjModule.FS.mkdir("/working");
   mjModule.FS.mount(mjModule.MEMFS, { root: "." }, "/working");
@@ -41,7 +30,7 @@ export async function loadXmlFromUrl(url: string): Promise<void> {
   const resp = await fetch(url);
   const text = await resp.text();
   mjModule.FS.writeFile("/working/model.xml", text);
-  mjModel = mjModule.MjModel.loadFromXML("/working/model.xml");
+  mjModel = mjModule.MjModel.mj_loadXML("/working/model.xml");
   mjData = new mjModule.MjData(mjModel);
   mjModule.mj_forward(mjModel, mjData);
 
