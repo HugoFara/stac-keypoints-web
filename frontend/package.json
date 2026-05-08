@@ -12,12 +12,15 @@
     "@mujoco/mujoco": "3.8.0",
     "@react-three/drei": "^9.88.0",
     "@react-three/fiber": "^8.15.0",
+    "h5wasm": "0.10.1",
+    "js-yaml": "4.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "three": "^0.181.0",
     "zustand": "^4.4.0"
   },
   "devDependencies": {
+    "@types/js-yaml": "4.0.9",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@types/three": "^0.181.0",
